@@ -1,0 +1,68 @@
+name: TrendRadar Daily Update
+
+on:
+  workflow_dispatch:        # 允许手动触发
+  schedule:
+    - cron: '0 9,21 * * *'  # 每天9点和21点运行（UTC时间）
+
+jobs:
+  run-agents:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # 重要：授予写权限
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.PAT_TOKEN }}  # 使用Personal Access Token
+        fetch-depth: 0
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # 如果没有requirements.txt，直接安装常用包
+        pip install crewai langchain-openai python-dotenv
+    
+    - name: Create output directory
+      run: |
+        mkdir -p output
+        ls -la
+    
+    - name: Run TrendRadar Agents
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+      run: |
+        # 如果main.py不在根目录，修改为正确的路径
+        python src/main.py || python main.py
+    
+    - name: Configure Git
+      run: |
+        git config --global user.name 'TrendRadar Bot'
+        git config --global user.email 'bot@trendradar.com'
+    
+    - name: Check for changes
+      id: check_changes
+      run: |
+        git add output/ || echo "No output directory"
+        if git diff --staged --quiet; then
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "No changes to commit"
+        else
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Commit and push changes
+      if: steps.check_changes.outputs.has_changes == 'true'
+      run: |
+        git commit -m "Auto update: $(date '+%Y-%m-%d %H:%M:%S')"
+        git push origin HEAD:main
